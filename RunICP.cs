@@ -229,7 +229,10 @@ namespace TrimbleICP.Functions
                     }
                     catch (Exception e)
                     {
-                        log.Error("File not found", e);
+                        var stdout = (await task.GetNodeFileAsync("stdout.txt")).ReadAsString();
+                        var stderr = (await task.GetNodeFileAsync("stderr.txt")).ReadAsString();
+                        var stdall = $"stdout:\n{stdout}\n\nstderr:{stderr}";
+                        log.Error($"File not found, app logs:\n\n\n\n{stdall}");
                         return new NotFoundObjectResult(e);
                     }
                 }
