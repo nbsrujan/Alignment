@@ -73,162 +73,171 @@ namespace TrimbleICP.Functions
 
         // App Settings
         private const string ApplicationPackageId = "ICP";
-        private const string ApplicationPackageVersion = "03";
+        private const string ApplicationPackageVersion = "04";
         private const string ApplicationOutputFileName = "AlignmentInfo.txt";
 
         [FunctionName("RunICP")]
         public async static Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "post", Route = null)]RunICPRequest req, TraceWriter log)
         {
-            var startTime = DateTimeOffset.Now;
-            Console.WriteLine("Dunction started: {0}", startTime);
-            Console.WriteLine();
-            var timer = new Stopwatch();
-            timer.Start();
-
-            if (String.IsNullOrEmpty(BatchAccountName) ||
-                String.IsNullOrEmpty(BatchAccountKey) ||
-                String.IsNullOrEmpty(BatchAccountUrl) ||
-                String.IsNullOrEmpty(StorageAccountName) ||
-                String.IsNullOrEmpty(StorageAccountKey))
+            try
             {
-                throw new InvalidOperationException("One or more account credential strings have not been populated. Please ensure that your Batch and Storage account credentials have been specified.");
-            }
+                var startTime = DateTimeOffset.Now;
+                log.Info("Dunction started: {0}" + startTime);
+                var timer = new Stopwatch();
+                timer.Start();
 
-            // Create batch job and task names
-            var nameUnifier = startTime.ToUniversalTime().ToString("yyyyMMdd_HHmmss_ffff");
-            var jobName = JobNamePrefix + (CreateNewJobOnEveryRun ? $"__{nameUnifier}" : String.Empty);
-            var taskName = TaskNamePrefix + $"__{nameUnifier}";
-
-            // Create Blob client
-            var storageAccount = CloudStorageAccount.Parse(StorageConnectionString);
-            var blobClient = storageAccount.CreateCloudBlobClient();
-
-            // Create input container
-            var container = blobClient.GetContainerReference(InputContainerName);
-            await container.CreateIfNotExistsAsync();
-
-            // Upload the data files to Azure Storage. This is the data that will be processed by each of the tasks that are
-            // executed on the compute nodes within the pool.
-            var inputFiles = new List<ResourceFile>();
-
-            var blobFileNamePrefix = $"{jobName}/{taskName}/";
-            inputFiles.Add(await UploadStringToContainer(blobClient, InputContainerName, blobFileNamePrefix + ModelPointsFileName, ModelPointsFileName, req.ModelPoints));
-            inputFiles.Add(await UploadStringToContainer(blobClient, InputContainerName, blobFileNamePrefix + ScanPointsFileName, ScanPointsFileName, req.ScanPoints));
-
-            // Get a Batch client using account creds
-
-            var batchCredentials = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-
-            using (var batchClient = BatchClient.Open(batchCredentials))
-            {
-                // Create a Batch pool, VM configuration, Windows Server image
-                Console.WriteLine("Creating pool [{0}]...", PoolName);
-
-                var imageReference = new ImageReference(
-                    publisher: NodeOsPublisher,
-                    offer: NodeOsOffer,
-                    sku: NodeOsSku,
-                    version: NodeOsVersion);
-
-                var virtualMachineConfiguration =
-                new VirtualMachineConfiguration(
-                    imageReference: imageReference,
-                    nodeAgentSkuId: NodeAgentSkuId);
-
-                try
+                if (String.IsNullOrEmpty(BatchAccountName) ||
+                    String.IsNullOrEmpty(BatchAccountKey) ||
+                    String.IsNullOrEmpty(BatchAccountUrl) ||
+                    String.IsNullOrEmpty(StorageAccountName) ||
+                    String.IsNullOrEmpty(StorageAccountKey))
                 {
-                    var pool = batchClient.PoolOperations.CreatePool(
-                        poolId: PoolName,
-                        virtualMachineSize: PoolVmSize,
-                        virtualMachineConfiguration: virtualMachineConfiguration);
-
-                    if (!String.IsNullOrEmpty(PoolAutoscaleFormula))
-                    {
-                        pool.AutoScaleEnabled = true;
-                        pool.AutoScaleFormula = PoolAutoscaleFormula;
-                        pool.AutoScaleEvaluationInterval = TimeSpan.FromMinutes(5);
-                    }
-                    else
-                    {
-                        pool.TargetDedicatedComputeNodes = PoolDedicatedNodeCount;
-                        pool.TargetLowPriorityComputeNodes = PoolLowPriorityNodeCount;
-                    }
-
-                    pool.MaxTasksPerComputeNode = PoolMaxTasksPerNodeCount;
-
-                    pool.Commit();
-                }
-                catch (BatchException be)
-                {
-                    // Accept the specific error code PoolExists as that is expected if the pool already exists
-                    if (be.RequestInformation?.BatchError?.Code == BatchErrorCodeStrings.PoolExists)
-                    {
-                        Console.WriteLine("The pool {0} already existed when we tried to create it", PoolName);
-                    }
-                    else
-                    {
-                        throw; // Any other exception is unexpected
-                    }
+                    throw new InvalidOperationException("One or more account credential strings have not been populated. Please ensure that your Batch and Storage account credentials have been specified.");
                 }
 
-                // Create a Batch job
-                Console.WriteLine("Creating job [{0}]...", jobName);
+                // Create batch job and task names
+                var nameUnifier = startTime.ToUniversalTime().ToString("yyyyMMdd_HHmmss_ffff");
+                var jobName = JobNamePrefix + (CreateNewJobOnEveryRun ? $"__{nameUnifier}" : String.Empty);
+                var taskName = TaskNamePrefix + $"__{nameUnifier}";
 
-                try
-                {
-                    CloudJob job = batchClient.JobOperations.CreateJob();
-                    job.Id = jobName;
-                    job.PoolInformation = new PoolInformation { PoolId = PoolName };
+                // Create Blob client
+                var storageAccount = CloudStorageAccount.Parse(StorageConnectionString);
+                var blobClient = storageAccount.CreateCloudBlobClient();
 
-                    job.Commit();
-                }
-                catch (BatchException be)
+                // Create input container
+                var container = blobClient.GetContainerReference(InputContainerName);
+                await container.CreateIfNotExistsAsync();
+
+                // Upload the data files to Azure Storage. This is the data that will be processed by each of the tasks that are
+                // executed on the compute nodes within the pool.
+                var inputFiles = new List<ResourceFile>();
+
+                var blobFileNamePrefix = $"{jobName}/{taskName}/";
+                inputFiles.Add(await UploadStringToContainer(blobClient, InputContainerName, blobFileNamePrefix + ModelPointsFileName, ModelPointsFileName, req.ModelPoints));
+                inputFiles.Add(await UploadStringToContainer(blobClient, InputContainerName, blobFileNamePrefix + ScanPointsFileName, ScanPointsFileName, req.ScanPoints));
+
+                // Get a Batch client using account creds
+
+                var batchCredentials = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
+
+                using (var batchClient = BatchClient.Open(batchCredentials))
                 {
-                    // Accept the specific error code JobExists as that is expected if the job already exists
-                    if (be.RequestInformation?.BatchError?.Code == BatchErrorCodeStrings.JobExists)
+                    // Create a Batch pool, VM configuration, Windows Server image
+                    log.Info("Creating pool [{0}]...", PoolName);
+
+                    var imageReference = new ImageReference(
+                        publisher: NodeOsPublisher,
+                        offer: NodeOsOffer,
+                        sku: NodeOsSku,
+                        version: NodeOsVersion);
+
+                    var virtualMachineConfiguration =
+                    new VirtualMachineConfiguration(
+                        imageReference: imageReference,
+                        nodeAgentSkuId: NodeAgentSkuId);
+
+                    try
                     {
-                        Console.WriteLine("The job {0} already existed when we tried to create it", JobNamePrefix);
-                    }
-                    else
-                    {
-                        throw; // Any other exception is unexpected
-                    }
-                }
+                        var pool = batchClient.PoolOperations.CreatePool(
+                            poolId: PoolName,
+                            virtualMachineSize: PoolVmSize,
+                            virtualMachineConfiguration: virtualMachineConfiguration);
 
-                // Adding task
-                var taskCommandLine = String.Format($"cmd /c %AZ_BATCH_APP_PACKAGE_ICP%\\ICP_PCL.exe %AZ_BATCH_TASK_WORKING_DIR% {ScanPointsFileName} {ModelPointsFileName} 1 1");
-                var task = new CloudTask(taskName, taskCommandLine)
-                {
-                    ResourceFiles = inputFiles,
-                    ApplicationPackageReferences = new List<ApplicationPackageReference>
+                        if (!String.IsNullOrEmpty(PoolAutoscaleFormula))
+                        {
+                            pool.AutoScaleEnabled = true;
+                            pool.AutoScaleFormula = PoolAutoscaleFormula;
+                            pool.AutoScaleEvaluationInterval = TimeSpan.FromMinutes(5);
+                        }
+                        else
+                        {
+                            pool.TargetDedicatedComputeNodes = PoolDedicatedNodeCount;
+                            pool.TargetLowPriorityComputeNodes = PoolLowPriorityNodeCount;
+                        }
+
+                        pool.MaxTasksPerComputeNode = PoolMaxTasksPerNodeCount;
+
+                        pool.Commit();
+                    }
+                    catch (BatchException be)
+                    {
+                        // Accept the specific error code PoolExists as that is expected if the pool already exists
+                        if (be.RequestInformation?.BatchError?.Code == BatchErrorCodeStrings.PoolExists)
+                        {
+                            log.Info("The pool {0} already existed when we tried to create it", PoolName);
+                        }
+                        else
+                        {
+                            throw; // Any other exception is unexpected
+                        }
+                    }
+
+                    // Create a Batch job
+                    log.Info("Creating job [" + jobName + "]...");
+
+                    try
+                    {
+                        CloudJob job = batchClient.JobOperations.CreateJob();
+                        job.Id = jobName;
+                        job.PoolInformation = new PoolInformation { PoolId = PoolName };
+
+                        job.Commit();
+                    }
+                    catch (BatchException be)
+                    {
+                        // Accept the specific error code JobExists as that is expected if the job already exists
+                        if (be.RequestInformation?.BatchError?.Code == BatchErrorCodeStrings.JobExists)
+                        {
+                            log.Info("The job {0} already existed when we tried to create it", JobNamePrefix);
+                        }
+                        else
+                        {
+                            throw; // Any other exception is unexpected
+                        }
+                    }
+
+                    // Adding task
+                    var taskCommandLine = String.Format($"cmd /c %AZ_BATCH_APP_PACKAGE_ICP%\\ICP_PCL.exe %AZ_BATCH_TASK_WORKING_DIR% {ScanPointsFileName} {ModelPointsFileName} 1 1");
+                    var task = new CloudTask(taskName, taskCommandLine)
+                    {
+                        ResourceFiles = inputFiles,
+                        ApplicationPackageReferences = new List<ApplicationPackageReference>
                     {
                         new ApplicationPackageReference { ApplicationId = ApplicationPackageId, Version = ApplicationPackageVersion }
                     }
-                };
-
-                await batchClient.JobOperations.AddTaskAsync(jobName, task);
-
-                // Monitor task
-                var stateMonitor = batchClient.Utilities.CreateTaskStateMonitor();
-
-                task = batchClient.JobOperations.GetTask(jobName, taskName);
-                stateMonitor.WaitAll(new List<CloudTask> { task }, TaskState.Completed, timeout: TimeSpan.FromMinutes(5));
-
-
-                Console.WriteLine("Task completed");
-                try
-                {
-                    var result = new RunICPResponse
-                    {
-                        Content = (await task.GetNodeFileAsync("wd\\" + ApplicationOutputFileName)).ReadAsString()
                     };
 
-                    return new OkObjectResult(result);
+                    await batchClient.JobOperations.AddTaskAsync(jobName, task);
+
+                    // Monitor task
+                    var stateMonitor = batchClient.Utilities.CreateTaskStateMonitor();
+
+                    task = batchClient.JobOperations.GetTask(jobName, taskName);
+                    stateMonitor.WaitAll(new List<CloudTask> { task }, TaskState.Completed, timeout: TimeSpan.FromMinutes(5));
+
+
+                    log.Info("Task completed");
+                    try
+                    {
+                        var result = new RunICPResponse
+                        {
+                            Content = (await task.GetNodeFileAsync("wd\\" + ApplicationOutputFileName)).ReadAsString()
+                        };
+
+                        log.Info("Execution finished successfully");
+                        return new OkObjectResult(result);
+                    }
+                    catch (Exception e)
+                    {
+                        log.Error("File not found", e);
+                        return new NotFoundObjectResult(e);
+                    }
                 }
-                catch (Exception e)
-                {
-                    return new NotFoundObjectResult(e);
-                }
+            }
+            catch (Exception e)
+            {
+                log.Error("Unknown exception:", e);
+                throw;
             }
         }
 
@@ -241,8 +250,6 @@ namespace TrimbleICP.Functions
         /// <returns>A ResourceFile instance representing the file within blob storage.</returns>
         private async static Task<ResourceFile> UploadFileToContainer(CloudBlobClient blobClient, string containerName, string filePath)
         {
-            Console.WriteLine("Uploading file {0} to container [{1}]...", filePath, containerName);
-
             string blobName = Path.GetFileName(filePath);
 
             CloudBlobContainer container = blobClient.GetContainerReference(containerName);
@@ -275,8 +282,6 @@ namespace TrimbleICP.Functions
         /// <returns>A ResourceFile instance representing the file within blob storage.</returns>
         private async static Task<ResourceFile> UploadStringToContainer(CloudBlobClient blobClient, string containerName, string blobName, string batchWdFilePath, string content)
         {
-            Console.WriteLine("Uploading content to container [{0}/{1}] with Batch working directory file path {2}...", containerName, blobName, batchWdFilePath);
-
             CloudBlobContainer container = blobClient.GetContainerReference(containerName);
             CloudBlockBlob blobData = container.GetBlockBlobReference(blobName);
             await blobData.UploadTextAsync(content);
