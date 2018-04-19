@@ -66,8 +66,8 @@ namespace TrimbleICP.Functions
             $"$TargetLowPriorityNodes=min(maxNumberofVMs, pendingTaskSamples+1);";
 
         // Job settings
-        private const bool CreateNewJobOnEveryRun = true;
-        private const string JobNamePrefix = "TrimbleICP_RunICP_Job_v2";
+        private const bool CreateNewJobOnEveryRun = false;
+        private const string JobNamePrefix = "TrimbleICP_RunICP_Job_v3";
         private const string TaskNamePrefix = "TrimbleICP_RunICP_Task";
         private static Random _rand = new Random();
 
