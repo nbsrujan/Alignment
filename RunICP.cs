@@ -73,7 +73,6 @@ namespace TrimbleICP.Functions
 
         // App Settings
         private const string ApplicationPackageId = "ICP";
-        private const string ApplicationPackageVersion = "04";
         private const string ApplicationOutputFileName = "AlignmentInfo.txt";
 
         [FunctionName("RunICP")]
@@ -203,7 +202,7 @@ namespace TrimbleICP.Functions
                         ResourceFiles = inputFiles,
                         ApplicationPackageReferences = new List<ApplicationPackageReference>
                     {
-                        new ApplicationPackageReference { ApplicationId = ApplicationPackageId, Version = ApplicationPackageVersion }
+                        new ApplicationPackageReference { ApplicationId = ApplicationPackageId }
                     }
                     };
 
