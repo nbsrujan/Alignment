@@ -65,6 +65,8 @@ namespace TrimbleICP.Functions
             $"pendingTaskSamples = pendingTaskSamplePercent < 70 ? startingNumberOfVMs : (avg($PendingTasks.GetSample(180 * TimeInterval_Second))/{PoolMaxTasksPerNodeCount});" +
             $"$TargetLowPriorityNodes=min(maxNumberofVMs, pendingTaskSamples+1);";
 
+        public const string VCRedistributableUri = "https://download.microsoft.com/download/6/A/A/6AA4EDFF-645B-48C5-81CC-ED5963AEAD48/vc_redist.x64.exe";
+
         // Job settings
         private const bool CreateNewJobOnEveryRun = false;
         private const string JobNamePrefix = "TrimbleICP_RunICP_Job_v3";
@@ -81,7 +83,7 @@ namespace TrimbleICP.Functions
             try
             {
                 var startTime = DateTimeOffset.Now;
-                log.Info("Dunction started: {0}" + startTime);
+                log.Info($"Dunction started: {startTime}");
                 var timer = new Stopwatch();
                 timer.Start();
 
@@ -122,7 +124,7 @@ namespace TrimbleICP.Functions
                 using (var batchClient = BatchClient.Open(batchCredentials))
                 {
                     // Create a Batch pool, VM configuration, Windows Server image
-                    log.Info("Creating pool [{0}]...", PoolName);
+                    log.Info("Creating pool [{PoolName}]...");
 
                     var imageReference = new ImageReference(
                         publisher: NodeOsPublisher,
@@ -130,8 +132,7 @@ namespace TrimbleICP.Functions
                         sku: NodeOsSku,
                         version: NodeOsVersion);
 
-                    var virtualMachineConfiguration =
-                    new VirtualMachineConfiguration(
+                    var virtualMachineConfiguration = new VirtualMachineConfiguration(
                         imageReference: imageReference,
                         nodeAgentSkuId: NodeAgentSkuId);
 
@@ -141,6 +142,14 @@ namespace TrimbleICP.Functions
                             poolId: PoolName,
                             virtualMachineSize: PoolVmSize,
                             virtualMachineConfiguration: virtualMachineConfiguration);
+
+                        var startTaskCmd = "vc_redist.x64.exe /quiet /install";
+                        var redistFile = new ResourceFile(VCRedistributableUri, "vc_redist.x64.exe");
+                        pool.StartTask = new StartTask(startTaskCmd)
+                        {
+                            ResourceFiles = new List<ResourceFile> { redistFile },
+                            UserIdentity = new UserIdentity(new AutoUserSpecification(elevationLevel: ElevationLevel.Admin))
+                        };
 
                         if (!String.IsNullOrEmpty(PoolAutoscaleFormula))
                         {
@@ -163,7 +172,7 @@ namespace TrimbleICP.Functions
                         // Accept the specific error code PoolExists as that is expected if the pool already exists
                         if (be.RequestInformation?.BatchError?.Code == BatchErrorCodeStrings.PoolExists)
                         {
-                            log.Info("The pool {0} already existed when we tried to create it", PoolName);
+                            log.Info($"The pool {PoolName} already existed when we tried to create it");
                         }
                         else
                         {
@@ -187,7 +196,7 @@ namespace TrimbleICP.Functions
                         // Accept the specific error code JobExists as that is expected if the job already exists
                         if (be.RequestInformation?.BatchError?.Code == BatchErrorCodeStrings.JobExists)
                         {
-                            log.Info("The job {0} already existed when we tried to create it", JobNamePrefix);
+                            log.Info($"The job {JobNamePrefix} already existed when we tried to create it");
                         }
                         else
                         {
